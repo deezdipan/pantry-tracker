@@ -1,183 +1,314 @@
-// Add "use client" at the top to indicate this is a Client Component
-'use client';
-
-import { useState, useEffect } from 'react';
-import { Box, Modal, Typography, Stack, TextField, Button, Snackbar } from '@mui/material';
+'use client'
+import { Box, Stack, Typography, Button, Modal, TextField, CircularProgress, Snackbar, IconButton, MenuItem, Select, InputLabel, FormControl } from "@mui/material";
+import RemoveIcon from '@mui/icons-material/Remove'; // Import the minus icon
+import AddIcon from '@mui/icons-material/Add'; // Import the plus icon
 import { firestore } from '@/firebase';
-import { collection, getDocs, deleteDoc, doc, getDoc, setDoc } from 'firebase/firestore';
+import { collection, setDoc, doc, query, getDoc, getDocs, deleteDoc } from 'firebase/firestore';
+import { useEffect, useState } from 'react';
+
+const style = {
+  position: 'absolute',
+  top: '50%',
+  left: '50%', 
+  transform: 'translate(-50%, -50%)',
+  width: 400,
+  bgcolor: 'white',
+  border: '2px solid #000',
+  p: 4,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 3,
+};
 
 export default function Home() {
-  const [inventory, setInventory] = useState([]);
+  const [pantry, setPantry] = useState([]);
   const [open, setOpen] = useState(false);
   const [itemName, setItemName] = useState('');
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+  const [quantity, setQuantity] = useState('1'); // Default to string '1'
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(''); // State to manage error messages
+  const [openSnackbar, setOpenSnackbar] = useState(false); // State to manage snackbar visibility
+  const [searchQuery, setSearchQuery] = useState(''); // State to manage search query
+  const [selectedItem, setSelectedItem] = useState(''); // State for selected item in the remove modal
+  const [modalType, setModalType] = useState(''); // State to manage which modal is open
 
-  const updateInventory = async () => {
+  const handleOpen = (type) => {
+    setModalType(type);
+    setOpen(true);
+  };
+  const handleClose = () => setOpen(false);
+
+  const updatePantry = async () => {
+    setLoading(true);
     try {
-      const inventoryCollection = collection(firestore, 'inventory');
-      const snapshot = await getDocs(inventoryCollection);
-      const inventoryList = [];
-      snapshot.forEach((doc) => {
-        inventoryList.push({
-          name: doc.id,
-          ...doc.data(),
-        });
+      const snapshot = query(collection(firestore, 'pantry'));
+      const docs = await getDocs(snapshot);
+      const pantryList = [];
+      docs.forEach((doc) => {
+        pantryList.push({ "name": doc.id, ...doc.data() });
       });
-      setInventory(inventoryList);
+      setPantry(pantryList);
     } catch (error) {
-      console.error('Error fetching inventory:', error);
-      setSnackbar({ open: true, message: 'Error fetching inventory', severity: 'error' });
+      console.error("Error updating pantry: ", error);
+    } finally {
+      setLoading(false);
     }
-  };
+  }
 
-  const removeItem = async (item) => {
-    try {
-      const docRef = doc(firestore, 'inventory', item);
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        const { quantity } = docSnap.data();
-        if (quantity === 1) {
-          await deleteDoc(docRef);
-        } else {
-          await setDoc(docRef, { quantity: quantity - 1 });
-        }
-        setSnackbar({ open: true, message: 'Item removed successfully', severity: 'success' });
-      }
-      await updateInventory();
-    } catch (error) {
-      console.error('Error removing item:', error);
-      setSnackbar({ open: true, message: 'Error removing item', severity: 'error' });
-    }
-  };
+  useEffect(() => {
+    updatePantry();
+  }, []);
 
-  const addItem = async (item) => {
-    if (!item.trim()) {
-      setSnackbar({ open: true, message: 'Item name cannot be empty', severity: 'warning' });
+  const addItem = async (item, quantity) => {
+    if (quantity <= 0 || isNaN(quantity)) {
+      setError('Amount not entered');
+      setOpenSnackbar(true);
       return;
     }
     try {
-      const docRef = doc(firestore, 'inventory', item);
+      const standardizedItem = item.toLowerCase();
+      const docRef = doc(collection(firestore, 'pantry'), standardizedItem);
       const docSnap = await getDoc(docRef);
       if (docSnap.exists()) {
-        const { quantity } = docSnap.data();
-        await setDoc(docRef, { quantity: quantity + 1 });
+        const { count } = docSnap.data();
+        await setDoc(docRef, { count: count + quantity });
       } else {
-        await setDoc(docRef, { quantity: 1 });
+        await setDoc(docRef, { count: quantity });
       }
-      setSnackbar({ open: true, message: 'Item added successfully', severity: 'success' });
-      await updateInventory();
+      await updatePantry();
     } catch (error) {
-      console.error('Error adding item:', error);
-      setSnackbar({ open: true, message: 'Error adding item', severity: 'error' });
+      console.error("Error adding item: ", error);
+    }
+  }
+
+  const removeItem = async (item, quantity) => {
+    if (quantity <= 0 || isNaN(quantity)) {
+      setError('Amount not entered');
+      setOpenSnackbar(true);
+      return;
+    }
+    try {
+      const standardizedItem = item.toLowerCase();
+      const docRef = doc(collection(firestore, 'pantry'), standardizedItem);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        const { count } = docSnap.data();
+        if (quantity >= count) {
+          await deleteDoc(docRef);
+        } else {
+          await setDoc(docRef, { count: count - quantity });
+        }
+        await updatePantry();
+      }
+    } catch (error) {
+      console.error("Error removing item: ", error);
+    }
+  }
+
+  const handleQuantityChange = (e) => {
+    const value = e.target.value;
+    setQuantity(value);
+    if (value === '' || parseInt(value, 10) <= 0) {
+      setError('Amount not entered');
+      setOpenSnackbar(true);
+    } else {
+      setError('');
+      setOpenSnackbar(false); // Close Snackbar if the quantity is valid
     }
   };
 
-  useEffect(() => {
-    updateInventory();
-  }, []);
+  const handleAddItem = () => {
+    if (quantity === '' || parseInt(quantity, 10) <= 0) {
+      setError('Amount not entered');
+      setOpenSnackbar(true);
+    } else {
+      addItem(itemName, parseInt(quantity, 10)); // Ensure quantity is an integer
+      setItemName('');
+      setQuantity('1'); // Reset quantity to '1'
+      handleClose();
+    }
+  };
 
-  const handleOpen = () => setOpen(true);
-  const handleClose = () => setOpen(false);
+  const handleRemoveItem = () => {
+    if (quantity === '' || parseInt(quantity, 10) <= 0) {
+      setError('Amount not entered');
+      setOpenSnackbar(true);
+    } else {
+      removeItem(selectedItem, parseInt(quantity, 10)); // Ensure quantity is an integer
+      setQuantity('1'); // Reset quantity to '1'
+      setSelectedItem(''); // Reset selected item
+      handleClose();
+    }
+  };
 
   return (
-    <Box
-      
-      width="100vw"
-      height="100vh"
-      display="flex"
-      flexDirection="column"
-      justifyContent="center"
-      alignItems="center"
+    <Box 
+      width="100vw" 
+      height="100vh" 
+      display={'flex'} 
+      justifyContent={'center'} 
+      flexDirection={'column'}
+      alignItems={'center'}
       gap={2}
     >
-      <Snackbar
-        open={snackbar.open}
-        onClose={() => setSnackbar({ ...snackbar, open: false })}
-        message={snackbar.message}
-        autoHideDuration={3000}
-        severity={snackbar.severity}
-      />
-      <Modal open={open} onClose={handleClose}>
-        <Box
-          position="absolute"
-          top="50%"
-          left="50%"
-          width={400}
-          bgcolor="white"
-          border="2px solid #000"
-          boxShadow={24}
-          p={4}
-          display="flex"
-          flexDirection="column"
-          gap={3}
-          sx={{
-            transform: 'translate(-50%,-50%)',
-          }}
-        >
-          <Typography variant="h6">Add Item</Typography>
-          <Stack width="100%" direction="row" spacing={2}>
-            <TextField
-              variant="outlined"
-              fullWidth
-              value={itemName}
-              onChange={(e) => setItemName(e.target.value)}
-            />
-            <Button
-              variant="outlined"
-              onClick={() => {
-                addItem(itemName);
-                setItemName('');
-                handleClose();
-              }}
-            >
-              Add
-            </Button>
-          </Stack>
+      <Typography variant="h1" gutterBottom sx={{ fontSize: '4.0rem' }}>
+        Pantry Management
+      </Typography>
+      <Stack direction="row" spacing={2} marginBottom={2}>
+        <TextField 
+          label="Search Items"
+          variant="outlined"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
+        <Button variant="contained" onClick={() => handleOpen('add')}>Add New Item</Button>
+        <Button variant="contained" onClick={() => handleOpen('remove')}>Remove Item</Button>
+      </Stack>
+
+      <Modal
+        open={open}
+        onClose={handleClose}
+        aria-labelledby="modal-modal-title"
+        aria-describedby="modal-modal-description"
+      >
+        <Box sx={style}>
+          <Typography id="modal-modal-title" variant="h6" component="h2">
+            {modalType === 'remove' ? 'Remove Item' : 'Add Item'}
+          </Typography>
+          {modalType === 'remove' ? (
+            <Stack width="100%" direction={'column'} spacing={2}>
+              <Stack direction="row" spacing={2} width="100%">
+                <FormControl fullWidth variant="outlined">
+                  <InputLabel id="select-item-label">Item</InputLabel>
+                  <Select
+                    labelId="select-item-label"
+                    id="select-item"
+                    value={selectedItem}
+                    onChange={(e) => setSelectedItem(e.target.value)}
+                    label="Item"
+                  >
+                    {pantry.map(({ name }) => (
+                      <MenuItem key={name} value={name}>
+                        {name.charAt(0).toUpperCase() + name.slice(1)}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+                <Button
+                  variant="outlined"
+                  sx={{ width: 120 }} // Adjust width here
+                  onClick={() => setQuantity(pantry.find(item => item.name === selectedItem)?.count || '0')}
+                >
+                  Select All
+                </Button>
+              </Stack>
+              <TextField
+                id="item-quantity"
+                label="Quantity"
+                type="number"
+                variant="outlined"
+                fullWidth
+                value={quantity}
+                onChange={handleQuantityChange}
+              />
+              <Button
+                variant="outlined"
+                onClick={handleRemoveItem}
+              >
+                Remove
+              </Button>
+            </Stack>
+          ) : (
+            <Stack width="100%" direction={'column'} spacing={2}>
+              <TextField
+                id="item-name"
+                label="Item"
+                variant="outlined"
+                fullWidth
+                value={itemName}
+                onChange={(e) => setItemName(e.target.value)}
+              />
+              <TextField
+                id="item-quantity"
+                label="Quantity"
+                type="number"
+                variant="outlined"
+                fullWidth
+                value={quantity}
+                onChange={handleQuantityChange}
+              />
+              <Button
+                variant="outlined"
+                onClick={handleAddItem}
+              >
+                Add
+              </Button>
+            </Stack>
+          )}
         </Box>
       </Modal>
-      <Button variant="contained" onClick={handleOpen}>
-        Add New Item
-      </Button>
-      <Box
-        border="1px solid #333"
-        width="800px"
-        height="100px"
-        bgcolor="#ADD8E6"
-        alignItems="center"
-        justifyContent="center"
-        display="flex"
-      >
-        <Typography variant="h2" color="#333">
-          Pantry Items
-        </Typography>
+
+      <Box border={'1px solid #333'}>
+        <Box 
+          width="800px" 
+          height="100px" 
+          bgcolor={'#ADD8E6'} 
+          display={'flex'} 
+          justifyContent={'center'}
+          alignItems={'center'}
+        >
+          <Typography variant={'h2'} color={'#333'} textAlign={'center'}>
+            Pantry Items
+          </Typography>
+        </Box>
+        <Stack width="800px" height="300px" spacing={2} overflow={'auto'}>
+          {loading ? (
+            <CircularProgress />
+          ) : (
+            pantry
+              .filter(({ name }) => name.toLowerCase().includes(searchQuery.toLowerCase())) // Apply search filter
+              .map(({ name, count }) => (
+                <Box
+                  key={name}
+                  minHeight="150px" 
+                  display={'flex'}
+                  justifyContent={'space-between'}
+                  paddingX={5}
+                  alignItems={'center'}
+                  bgcolor={'#f0f0ff0'}
+                >
+                  <Typography
+                    variant={'h3'}
+                    color={'#333'}
+                    textAlign={'center'}
+                    fontWeight={'bold'}
+                  >
+                    {name.charAt(0).toUpperCase() + name.slice(1)}
+                  </Typography>
+                  <Typography variant={'h3'} color={'#333'} textAlign={'center'}>
+                    Quantity: {count}
+                  </Typography>
+                  <Box display="flex" alignItems="center">
+                    <IconButton onClick={() => addItem(name, 1)} color="primary">
+                      <AddIcon />
+                    </IconButton>
+                    <IconButton onClick={() => removeItem(name, 1)} color="primary">
+                      <RemoveIcon />
+                    </IconButton>
+                  </Box>
+                </Box>
+              ))
+          )}
+        </Stack>
       </Box>
-      <Stack width="800px" height="300px" spacing={2} overflow="auto" border= "1px solid #333">
-        {inventory.map(({ name, quantity }) => (
-          <Box
-            key={name}
-            width="100%"
-            minHeight="150px"
-            display="flex"
-            alignItems="center"
-            justifyContent="space-between"
-            bgcolor="#f0f0f0"
-            padding={5}
-          >
-            <Typography variant="h3" color="#333" textAlign="center">
-              {name.charAt(0).toUpperCase() + name.slice(1)}
-            </Typography>
-            <Typography variant="h3" color="#333" textAlign="center" sx={{ fontSize: '20px' }}>
-              Quantity: {quantity}
-            </Typography>
-            <Button variant="contained" onClick={() => addItem(name)}>
-              Add
-            </Button>
-            <Button variant="outlined" color="error" onClick={() => removeItem(name)}>
-              Remove
-            </Button>
-          </Box>
-        ))}
-      </Stack>
+
+      {/* Snackbar for error messages */}
+      <Snackbar
+        open={openSnackbar}
+        autoHideDuration={6000}
+        onClose={() => setOpenSnackbar(false)}
+        message={error}
+      />
     </Box>
-  );
+  )
 }
