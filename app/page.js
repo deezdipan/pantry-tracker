@@ -1,6 +1,8 @@
+// Add "use client" at the top to indicate this is a Client Component
 'use client';
+
 import { useState, useEffect } from 'react';
-import { Box, Modal, Typography, Stack, TextField, Button } from '@mui/material';
+import { Box, Modal, Typography, Stack, TextField, Button, Snackbar } from '@mui/material';
 import { firestore } from '@/firebase';
 import { collection, getDocs, deleteDoc, doc, getDoc, setDoc } from 'firebase/firestore';
 
@@ -8,6 +10,7 @@ export default function Home() {
   const [inventory, setInventory] = useState([]);
   const [open, setOpen] = useState(false);
   const [itemName, setItemName] = useState('');
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
   const updateInventory = async () => {
     try {
@@ -23,6 +26,7 @@ export default function Home() {
       setInventory(inventoryList);
     } catch (error) {
       console.error('Error fetching inventory:', error);
+      setSnackbar({ open: true, message: 'Error fetching inventory', severity: 'error' });
     }
   };
 
@@ -37,14 +41,20 @@ export default function Home() {
         } else {
           await setDoc(docRef, { quantity: quantity - 1 });
         }
+        setSnackbar({ open: true, message: 'Item removed successfully', severity: 'success' });
       }
       await updateInventory();
     } catch (error) {
       console.error('Error removing item:', error);
+      setSnackbar({ open: true, message: 'Error removing item', severity: 'error' });
     }
   };
 
   const addItem = async (item) => {
+    if (!item.trim()) {
+      setSnackbar({ open: true, message: 'Item name cannot be empty', severity: 'warning' });
+      return;
+    }
     try {
       const docRef = doc(firestore, 'inventory', item);
       const docSnap = await getDoc(docRef);
@@ -54,9 +64,11 @@ export default function Home() {
       } else {
         await setDoc(docRef, { quantity: 1 });
       }
+      setSnackbar({ open: true, message: 'Item added successfully', severity: 'success' });
       await updateInventory();
     } catch (error) {
       console.error('Error adding item:', error);
+      setSnackbar({ open: true, message: 'Error adding item', severity: 'error' });
     }
   };
 
@@ -69,6 +81,7 @@ export default function Home() {
 
   return (
     <Box
+      
       width="100vw"
       height="100vh"
       display="flex"
@@ -77,6 +90,13 @@ export default function Home() {
       alignItems="center"
       gap={2}
     >
+      <Snackbar
+        open={snackbar.open}
+        onClose={() => setSnackbar({ ...snackbar, open: false })}
+        message={snackbar.message}
+        autoHideDuration={3000}
+        severity={snackbar.severity}
+      />
       <Modal open={open} onClose={handleClose}>
         <Box
           position="absolute"
@@ -128,10 +148,10 @@ export default function Home() {
         display="flex"
       >
         <Typography variant="h2" color="#333">
-          Inventory Items
+          Pantry Items
         </Typography>
       </Box>
-      <Stack width="800px" height="300px" spacing={2} overflow="auto">
+      <Stack width="800px" height="300px" spacing={2} overflow="auto" border= "1px solid #333">
         {inventory.map(({ name, quantity }) => (
           <Box
             key={name}
@@ -146,13 +166,13 @@ export default function Home() {
             <Typography variant="h3" color="#333" textAlign="center">
               {name.charAt(0).toUpperCase() + name.slice(1)}
             </Typography>
-            <Typography variant="h3" color="#333" textAlign="center">
-              {quantity}
+            <Typography variant="h3" color="#333" textAlign="center" sx={{ fontSize: '20px' }}>
+              Quantity: {quantity}
             </Typography>
             <Button variant="contained" onClick={() => addItem(name)}>
               Add
             </Button>
-            <Button variant="contained" onClick={() => removeItem(name)}>
+            <Button variant="outlined" color="error" onClick={() => removeItem(name)}>
               Remove
             </Button>
           </Box>
